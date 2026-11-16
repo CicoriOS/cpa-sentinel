@@ -1,5 +1,7 @@
 # cpa-sentinel
 
+English | [简体中文](README.zh-CN.md)
+
 Lightweight agent for [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) (CPA). It fixes false-positive `429 RESOURCE_EXHAUSTED` responses on the **Antigravity** channel that are caused by text in the system prompt, not by quota.
 
 Only the Google (Gemini) request format is supported.
