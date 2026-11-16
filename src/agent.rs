@@ -13,8 +13,8 @@ pub struct Options {
     pub dry_run: bool,
     /// Shell command run when a hot reload did not clear the 429 (e.g. `systemctl restart cliproxyapi`).
     pub restart_cmd: Option<String>,
-    /// Rewrites trigger lines with Gemini; `None` deletes them.
-    pub agy: Option<crate::rewrite::Agy>,
+    /// Rewrites trigger lines with a chat model; `None` deletes them.
+    pub rewriter: Option<crate::rewrite::Rewriter>,
 }
 
 fn request(system: Option<&str>) -> Value {
@@ -61,13 +61,13 @@ pub async fn handle(cpa: &Cpa, blocked: Blocked429, opts: &Options) -> Result<()
         .await?;
         let trigger = blocking[0].clone();
         info!(round, lines = blocking.len(), %trigger, "found blocking line");
-        // Gemini (with Antigravity's own prompt and tools) proposes a rewording; a candidate
-        // is kept only if the blocking lines pass with it. Otherwise the line is deleted.
+        // A chat model proposes a rewording; a candidate is kept only if the blocking lines
+        // pass with it. Otherwise the line is deleted.
         let mut replacement = String::new();
-        if let Some(agy) = &opts.agy {
+        if let Some(rewriter) = &opts.rewriter {
             let mut rejected = Vec::new();
             for _ in 0..3 {
-                let candidate = match agy.propose(cpa, &auths, &trigger, &rejected).await {
+                let candidate = match rewriter.propose(&trigger, &rejected).await {
                     Ok(c) => c,
                     Err(e) => {
                         warn!("rewrite generation failed: {e:#}");
@@ -77,7 +77,10 @@ pub async fn handle(cpa: &Cpa, blocked: Blocked429, opts: &Options) -> Result<()
                 let mut subset = blocking.clone();
                 subset[0] = candidate.clone();
                 let ok = blocking.len() > 1
-                    || cpa.probe(&auths, &model, &request(Some(&subset.join("\n")))).await? == Probe::Pass;
+                    || cpa
+                        .probe(&auths, &model, &request(Some(&subset.join("\n"))))
+                        .await?
+                        == Probe::Pass;
                 if ok {
                     replacement = candidate;
                     break;
@@ -89,10 +92,17 @@ pub async fn handle(cpa: &Cpa, blocked: Blocked429, opts: &Options) -> Result<()
             }
         }
         // The replace rule rewrites every occurrence of the line text.
-        lines.iter_mut().filter(|l| **l == trigger).for_each(|l| l.clone_from(&replacement));
+        lines
+            .iter_mut()
+            .filter(|l| **l == trigger)
+            .for_each(|l| l.clone_from(&replacement));
         rules.insert(trigger, replacement);
 
-        if cpa.probe(&auths, &model, &request(Some(&lines.join("\n")))).await? == Probe::Pass {
+        if cpa
+            .probe(&auths, &model, &request(Some(&lines.join("\n"))))
+            .await?
+            == Probe::Pass
+        {
             return apply(cpa, &auths, &model, &original, &rules, opts).await;
         }
     }
@@ -124,7 +134,11 @@ async fn apply(
         bail!("hot reload did not clear the 429 and no SENTINEL_RESTART_CMD is set");
     };
     warn!(%cmd, "hot reload did not clear the 429, restarting CPA");
-    let status = tokio::process::Command::new("sh").arg("-c").arg(cmd).status().await?;
+    let status = tokio::process::Command::new("sh")
+        .arg("-c")
+        .arg(cmd)
+        .status()
+        .await?;
     if !status.success() {
         bail!("restart command failed: {status}");
     }

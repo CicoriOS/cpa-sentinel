@@ -6,7 +6,12 @@ Lightweight agent for [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI
 
 Only the Google (Gemini) request format is supported.
 
-Instead of deleting a trigger line, the agent can ask `gemini-3.8-flash` on the same CPA to reword it. That call carries Antigravity's own system prompt and tool declarations and reads the new text from the Antigravity edit tool's call. A rewrite is used only if the blocking lines pass with it; otherwise the line is deleted.
+Instead of deleting a trigger line, the agent can ask a separate OpenAI-compatible chat API to rewrite it. The upstream filter also blocks any request that quotes a trigger line, so the rewrite cannot be asked of the CPA that is being repaired. The rewrite does not have to stay faithful to the original. Each attempt picks one of two styles at random, half the time each:
+
+- **Another language**: the model picks one of Uzbek, Japanese, Traditional Chinese, Simplified Chinese, Korean, Burmese, French or German and writes the line in it.
+- **A longer sentence**: one sentence longer than the original that reuses no word from the original line or from earlier rejected rewrites. The agent checks this itself and discards candidates that break it.
+
+A rewrite is used only if the blocking lines pass with it. After 3 failed attempts the line is deleted. The trigger lines are sent to that API, so use a service you control.
 
 ## What it does
 
@@ -14,7 +19,7 @@ Instead of deleting a trigger line, the agent can ask `gemini-3.8-flash` on the 
 2. Pulls the system prompt out of the logged request body.
 3. Resets CPA's local cooldowns, then checks that a bare `hi` passes. If it does not, the 429 is real quota and the agent stops.
 4. Keeps the user prompt fixed at `hi` and bisects the system prompt line by line (delta debugging) to find the blocking line.
-5. Repeats until the whole system prompt passes, then merges one delete rule per trigger line into `oauth.providers.antigravity.sensitive-words-replace` with `PATCH /v8/management/config/oauth/providers/antigravity`. CPA hot-reloads the config.
+5. Repeats until the whole system prompt passes, then merges one rule per trigger line (its rewrite, or an empty string to delete it) into `oauth.providers.antigravity.sensitive-words-replace` with `PATCH /v8/management/config/oauth/providers/antigravity`. CPA hot-reloads the config.
 6. Verifies by sending the original system prompt through CPA. Only if that still returns 429 and `SENTINEL_RESTART_CMD` is set does it restart CPA.
 
 Between probes it calls `POST /v8/management/routing/cooldown/reset`, so a 429 seen by a probe always comes from upstream and the bisect does not wait out cooldowns.
@@ -29,23 +34,11 @@ Between probes it calls `POST /v8/management/routing/cooldown/reset`, so a 429 s
 | `CPA_LOG_DIR` | `/opt/cliproxyapi/logs` | where CPA writes `error-*.log` |
 | `SENTINEL_RESTART_CMD` | unset | fallback command, e.g. `systemctl restart cliproxyapi` |
 | `SENTINEL_DRY_RUN` | unset | `1` finds triggers but does not change CPA |
-| `SENTINEL_AGY_SYSTEM_FILE` | unset | file with Antigravity's system prompt; setting it turns on Gemini rewrites (otherwise lines are deleted) |
-| `SENTINEL_AGY_TOOLS_FILE` | required with the above | JSON `tools` array with Antigravity's tool declarations, Gemini format |
-| `SENTINEL_AGY_EDIT_TOOL` | required with the above | name of the Antigravity edit tool to force |
-| `SENTINEL_AGY_EDIT_FIELD` | required with the above | that tool's argument that holds the new text |
-| `SENTINEL_AGY_MODEL` | `gemini-3.8-flash` | model used for rewrites |
+| `SENTINEL_REWRITE_URL` | unset | base URL of an OpenAI-compatible API, e.g. `http://host:3000/v1`; setting it turns on rewrites (otherwise lines are deleted) |
+| `SENTINEL_REWRITE_KEY` | required with the above | API key for it |
+| `SENTINEL_REWRITE_MODEL` | required with the above | model used for rewrites |
 
-`CPA_URL` must be plain `http` (the agent is built without TLS so it ships as a static musl binary). CPA must have request error logging enabled so that `error-*.log` files are written, and the agent must run on the CPA host (or share the log directory).
-
-## Antigravity prompt and tools
-
-`scripts/fetch-agy.py <dir>` downloads Antigravity's system prompt and tool declarations from the public [x1xhlol/system-prompts-and-models-of-ai-tools](https://github.com/x1xhlol/system-prompts-and-models-of-ai-tools) collection and writes `<dir>/system.txt` and `<dir>/tools.json` (22 tools in Gemini `functionDeclarations` format). It honours `HTTPS_PROXY`. The files are not stored in this repository.
-
-```sh
-python3 scripts/fetch-agy.py agy
-export SENTINEL_AGY_SYSTEM_FILE=agy/system.txt SENTINEL_AGY_TOOLS_FILE=agy/tools.json \
-       SENTINEL_AGY_EDIT_TOOL=replace_file_content SENTINEL_AGY_EDIT_FIELD=ReplacementContent
-```
+`CPA_URL` and `SENTINEL_REWRITE_URL` must be plain `http` (the agent is built without TLS so it ships as a static musl binary). CPA must have request error logging enabled so that `error-*.log` files are written, and the agent must run on the CPA host (or share the log directory).
 
 ## Run
 

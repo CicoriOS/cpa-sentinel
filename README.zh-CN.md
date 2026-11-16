@@ -6,7 +6,12 @@
 
 目前只支持 Google(Gemini)请求格式。
 
-agent 不必直接删除触发行,也可以让同一个 CPA 上的 `gemini-3.8-flash` 改写它。这次调用会带上 Antigravity 自己的系统提示词和工具声明,并从 Antigravity 编辑工具的调用参数里取出新文本。只有当改写后的内容能让被拦截的行通过探测,才会采用;否则该行会被删除。
+agent 不必直接删除触发行,也可以让另一个 OpenAI 兼容的聊天 API 改写它。上游过滤器连引用了触发行的请求也会拦,所以不能把改写交给正在修复的这个 CPA。改写不必忠于原文。每次尝试随机选一种风格,各占一半概率:
+
+- **换成其他语言**:由模型从乌兹别克语、日语、繁体中文、简体中文、韩语、缅甸语、法语、德语中选一种,用它写这一行。
+- **更长的一句话**:比原句更长,且完全不使用原句和此前被拒绝的改写里出现过的词。agent 会自己校验,不合格的候选直接丢弃。
+
+只有当改写后的内容能让被拦截的行通过探测,才会采用。连续 3 次尝试失败后,该行会被删除。触发行会被发送给这个 API,请使用你自己可控的服务。
 
 ## 工作流程
 
@@ -14,7 +19,7 @@ agent 不必直接删除触发行,也可以让同一个 CPA 上的 `gemini-3.8-f
 2. 从日志里记录的请求体中取出系统提示词。
 3. 先重置 CPA 本地冷却,再确认只发一句 `hi` 是否能通过。如果不能通过,说明是真实的配额耗尽,agent 直接停止。
 4. 用户提示词固定为 `hi`,对系统提示词按行二分(delta debugging),找出触发拦截的那一行。
-5. 重复上一步,直到整段系统提示词都能通过。然后把每条触发行对应的规则合并写入 `oauth.providers.antigravity.sensitive-words-replace`,调用 `PATCH /v8/management/config/oauth/providers/antigravity`。CPA 会热加载配置。
+5. 重复上一步,直到整段系统提示词都能通过。然后把每条触发行对应的规则(改写后的文本,或用空字符串表示删除)合并写入 `oauth.providers.antigravity.sensitive-words-replace`,调用 `PATCH /v8/management/config/oauth/providers/antigravity`。CPA 会热加载配置。
 6. 验证:把原始系统提示词再通过 CPA 发送一次。只有仍然返回 429 且设置了 `SENTINEL_RESTART_CMD` 时,才会重启 CPA。
 
 每次探测之间会调用 `POST /v8/management/routing/cooldown/reset`,所以探测遇到的 429 一定来自上游,二分过程也不用等待本地冷却结束。
@@ -29,23 +34,11 @@ agent 不必直接删除触发行,也可以让同一个 CPA 上的 `gemini-3.8-f
 | `CPA_LOG_DIR` | `/opt/cliproxyapi/logs` | CPA 写入 `error-*.log` 的目录 |
 | `SENTINEL_RESTART_CMD` | 未设置 | 兜底重启命令,例如 `systemctl restart cliproxyapi` |
 | `SENTINEL_DRY_RUN` | 未设置 | 设为 `1` 时只查找触发行,不修改 CPA |
-| `SENTINEL_AGY_SYSTEM_FILE` | 未设置 | 存放 Antigravity 系统提示词的文件;设置后启用 Gemini 改写(否则直接删除触发行) |
-| `SENTINEL_AGY_TOOLS_FILE` | 上一项启用时必填 | Antigravity 工具声明的 JSON `tools` 数组,Gemini 格式 |
-| `SENTINEL_AGY_EDIT_TOOL` | 上一项启用时必填 | 要强制调用的 Antigravity 编辑工具名 |
-| `SENTINEL_AGY_EDIT_FIELD` | 上一项启用时必填 | 该工具中承载新文本的参数名 |
-| `SENTINEL_AGY_MODEL` | `gemini-3.8-flash` | 用于改写的模型 |
+| `SENTINEL_REWRITE_URL` | 未设置 | OpenAI 兼容 API 的基础地址,例如 `http://host:3000/v1`;设置后启用改写(否则直接删除触发行) |
+| `SENTINEL_REWRITE_KEY` | 上一项启用时必填 | 该 API 的密钥 |
+| `SENTINEL_REWRITE_MODEL` | 上一项启用时必填 | 用于改写的模型 |
 
-`CPA_URL` 必须是明文 `http`(程序编译时不带 TLS,以便发布成静态 musl 二进制)。CPA 必须开启请求错误日志,这样才会生成 `error-*.log`;agent 必须和 CPA 运行在同一台机器上(或共享日志目录)。
-
-## Antigravity 提示词与工具
-
-`scripts/fetch-agy.py <目录>` 会从公开合集 [x1xhlol/system-prompts-and-models-of-ai-tools](https://github.com/x1xhlol/system-prompts-and-models-of-ai-tools) 下载 Antigravity 的系统提示词和工具声明,并写出 `<目录>/system.txt` 和 `<目录>/tools.json`(Gemini `functionDeclarations` 格式,共 22 个工具)。脚本支持 `HTTPS_PROXY`。这些文件不放在本仓库里。
-
-```sh
-python3 scripts/fetch-agy.py agy
-export SENTINEL_AGY_SYSTEM_FILE=agy/system.txt SENTINEL_AGY_TOOLS_FILE=agy/tools.json \
-       SENTINEL_AGY_EDIT_TOOL=replace_file_content SENTINEL_AGY_EDIT_FIELD=ReplacementContent
-```
+`CPA_URL` 和 `SENTINEL_REWRITE_URL` 必须是明文 `http`(程序编译时不带 TLS,以便发布成静态 musl 二进制)。CPA 必须开启请求错误日志,这样才会生成 `error-*.log`;agent 必须和 CPA 运行在同一台机器上(或共享日志目录)。
 
 ## 运行
 

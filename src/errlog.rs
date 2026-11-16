@@ -13,7 +13,10 @@ pub fn parse(text: &str, own_user_agent: &str) -> Option<Blocked429> {
     let (head, rest) = text.split_once("=== REQUEST BODY ===\n")?;
     let (body, tail) = rest.split_once("\n\n=== ")?;
 
-    if head.lines().any(|l| l.starts_with("User-Agent:") && l.contains(own_user_agent)) {
+    if head
+        .lines()
+        .any(|l| l.starts_with("User-Agent:") && l.contains(own_user_agent))
+    {
         return None;
     }
     if !tail.contains("Status: 429") || !tail.contains("RESOURCE_EXHAUSTED") {
@@ -21,14 +24,21 @@ pub fn parse(text: &str, own_user_agent: &str) -> Option<Blocked429> {
     }
 
     let url = head.lines().find_map(|l| l.strip_prefix("URL: "))?;
-    let model = url.split("/models/").nth(1)?.split([':', '?']).next()?.to_string();
+    let model = url
+        .split("/models/")
+        .nth(1)?
+        .split([':', '?'])
+        .next()?
+        .to_string();
     let body: Value = serde_json::from_str(body.trim()).ok()?;
     Some(Blocked429 { model, body })
 }
 
 /// System prompt text of a Gemini request (`systemInstruction` or `system_instruction`).
 pub fn system_text(body: &Value) -> Option<String> {
-    let si = body.get("systemInstruction").or_else(|| body.get("system_instruction"))?;
+    let si = body
+        .get("systemInstruction")
+        .or_else(|| body.get("system_instruction"))?;
     let parts = si.get("parts")?.as_array()?;
     let text: String = parts.iter().filter_map(|p| p["text"].as_str()).collect();
     (!text.is_empty()).then_some(text)

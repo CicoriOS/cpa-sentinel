@@ -21,7 +21,9 @@ fn env(key: &str) -> Result<String> {
 
 async fn error_logs(dir: &PathBuf) -> Result<Vec<String>> {
     let mut out = Vec::new();
-    let mut rd = tokio::fs::read_dir(dir).await.with_context(|| format!("read {}", dir.display()))?;
+    let mut rd = tokio::fs::read_dir(dir)
+        .await
+        .with_context(|| format!("read {}", dir.display()))?;
     while let Some(e) = rd.next_entry().await? {
         let name = e.file_name().to_string_lossy().into_owned();
         if name.starts_with("error-v1beta-models-") && name.ends_with(".log") {
@@ -40,11 +42,15 @@ async fn main() -> Result<()> {
         env("CPA_MANAGEMENT_KEY")?,
         env("CPA_API_KEY")?,
     )?;
-    let log_dir = PathBuf::from(std::env::var("CPA_LOG_DIR").unwrap_or_else(|_| "/opt/cliproxyapi/logs".into()));
+    let log_dir = PathBuf::from(
+        std::env::var("CPA_LOG_DIR").unwrap_or_else(|_| "/opt/cliproxyapi/logs".into()),
+    );
     let opts = agent::Options {
         dry_run: std::env::var("SENTINEL_DRY_RUN").is_ok_and(|v| v == "1"),
-        restart_cmd: std::env::var("SENTINEL_RESTART_CMD").ok().filter(|s| !s.is_empty()),
-        agy: rewrite::Agy::from_env()?,
+        restart_cmd: std::env::var("SENTINEL_RESTART_CMD")
+            .ok()
+            .filter(|s| !s.is_empty()),
+        rewriter: rewrite::Rewriter::from_env()?,
     };
 
     let mut seen: HashSet<String> = error_logs(&log_dir).await?.into_iter().collect();
@@ -65,14 +71,23 @@ async fn main() -> Result<()> {
             // Let CPA finish writing the file.
             tokio::time::sleep(Duration::from_secs(1)).await;
             seen.insert(name.clone());
-            let Ok(text) = tokio::fs::read_to_string(log_dir.join(&name)).await else { continue };
-            let Some(blocked) = errlog::parse(&text, cpa::USER_AGENT) else { continue };
-            let Some(system) = errlog::system_text(&blocked.body) else { continue };
+            let Ok(text) = tokio::fs::read_to_string(log_dir.join(&name)).await else {
+                continue;
+            };
+            let Some(blocked) = errlog::parse(&text, cpa::USER_AGENT) else {
+                continue;
+            };
+            let Some(system) = errlog::system_text(&blocked.body) else {
+                continue;
+            };
 
             let mut h = DefaultHasher::new();
             system.hash(&mut h);
             let key = h.finish();
-            if handled.get(&key).is_some_and(|t| t.elapsed() < RECHECK_AFTER) {
+            if handled
+                .get(&key)
+                .is_some_and(|t| t.elapsed() < RECHECK_AFTER)
+            {
                 continue;
             }
             handled.insert(key, Instant::now());

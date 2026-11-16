@@ -24,7 +24,12 @@ impl Cpa {
             .user_agent(USER_AGENT)
             .timeout(Duration::from_secs(180))
             .build()?;
-        Ok(Self { http, base: base.trim_end_matches('/').to_string(), management_key, api_key })
+        Ok(Self {
+            http,
+            base: base.trim_end_matches('/').to_string(),
+            management_key,
+            api_key,
+        })
     }
 
     fn mgmt(&self, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
@@ -43,7 +48,9 @@ impl Cpa {
             .context("list credentials")?
             .json()
             .await?;
-        let files = v["files"].as_array().context("credentials: no files array")?;
+        let files = v["files"]
+            .as_array()
+            .context("credentials: no files array")?;
         Ok(files
             .iter()
             .filter(|f| f["provider"] == "antigravity")
@@ -63,24 +70,6 @@ impl Cpa {
         Ok(())
     }
 
-    /// Plain Gemini `generateContent` call through CPA; returns the response JSON.
-    pub async fn generate(&self, auths: &[String], model: &str, body: &Value) -> Result<Value> {
-        self.reset_cooldowns(auths).await?;
-        let resp = self
-            .http
-            .post(format!("{}/v1beta/models/{model}:generateContent", self.base))
-            .bearer_auth(&self.api_key)
-            .json(body)
-            .send()
-            .await?;
-        let status = resp.status();
-        let text = resp.text().await?;
-        if !status.is_success() {
-            bail!("generate got HTTP {status}: {}", text.chars().take(200).collect::<String>());
-        }
-        Ok(serde_json::from_str(&text)?)
-    }
-
     /// Send one Gemini `generateContent` request through CPA after clearing local cooldowns,
     /// so a 429 can only come from upstream.
     pub async fn probe(&self, auths: &[String], model: &str, body: &Value) -> Result<Probe> {
@@ -88,7 +77,10 @@ impl Cpa {
             self.reset_cooldowns(auths).await?;
             let resp = self
                 .http
-                .post(format!("{}/v1beta/models/{model}:generateContent", self.base))
+                .post(format!(
+                    "{}/v1beta/models/{model}:generateContent",
+                    self.base
+                ))
                 .bearer_auth(&self.api_key)
                 .json(body)
                 .send()
@@ -102,7 +94,10 @@ impl Cpa {
                     tokio::time::sleep(Duration::from_secs(2)).await;
                 }
                 429 => return Ok(Probe::Blocked),
-                s => bail!("probe got HTTP {s}: {}", text.chars().take(200).collect::<String>()),
+                s => bail!(
+                    "probe got HTTP {s}: {}",
+                    text.chars().take(200).collect::<String>()
+                ),
             }
         }
         bail!("probe kept hitting local cooldown after reset")
@@ -111,12 +106,15 @@ impl Cpa {
     /// Merge literal replace rules into `oauth.providers.antigravity.sensitive-words-replace`.
     /// CPA hot-reloads the saved file; no restart.
     pub async fn add_replace_rules(&self, rules: &BTreeMap<String, String>) -> Result<()> {
-        self.mgmt(reqwest::Method::PATCH, "/config/oauth/providers/antigravity")
-            .json(&json!({ "sensitive-words-replace": rules }))
-            .send()
-            .await?
-            .error_for_status()
-            .context("patch sensitive-words-replace")?;
+        self.mgmt(
+            reqwest::Method::PATCH,
+            "/config/oauth/providers/antigravity",
+        )
+        .json(&json!({ "sensitive-words-replace": rules }))
+        .send()
+        .await?
+        .error_for_status()
+        .context("patch sensitive-words-replace")?;
         Ok(())
     }
 }
