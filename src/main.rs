@@ -2,6 +2,7 @@ mod agent;
 mod bisect;
 mod cpa;
 mod errlog;
+mod rewrite;
 
 use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
@@ -43,6 +44,7 @@ async fn main() -> Result<()> {
     let opts = agent::Options {
         dry_run: std::env::var("SENTINEL_DRY_RUN").is_ok_and(|v| v == "1"),
         restart_cmd: std::env::var("SENTINEL_RESTART_CMD").ok().filter(|s| !s.is_empty()),
+        agy: rewrite::Agy::from_env()?,
     };
 
     let mut seen: HashSet<String> = error_logs(&log_dir).await?.into_iter().collect();

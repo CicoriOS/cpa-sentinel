@@ -63,6 +63,24 @@ impl Cpa {
         Ok(())
     }
 
+    /// Plain Gemini `generateContent` call through CPA; returns the response JSON.
+    pub async fn generate(&self, auths: &[String], model: &str, body: &Value) -> Result<Value> {
+        self.reset_cooldowns(auths).await?;
+        let resp = self
+            .http
+            .post(format!("{}/v1beta/models/{model}:generateContent", self.base))
+            .bearer_auth(&self.api_key)
+            .json(body)
+            .send()
+            .await?;
+        let status = resp.status();
+        let text = resp.text().await?;
+        if !status.is_success() {
+            bail!("generate got HTTP {status}: {}", text.chars().take(200).collect::<String>());
+        }
+        Ok(serde_json::from_str(&text)?)
+    }
+
     /// Send one Gemini `generateContent` request through CPA after clearing local cooldowns,
     /// so a 429 can only come from upstream.
     pub async fn probe(&self, auths: &[String], model: &str, body: &Value) -> Result<Probe> {
