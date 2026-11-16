@@ -72,7 +72,16 @@ impl Agy {
         match text {
             Some(t) if !t.trim().is_empty() && t != trigger => Ok(t.trim_end_matches('\n').to_string()),
             Some(_) => bail!("model returned an empty or unchanged line"),
-            None => bail!("model did not call `{}` with `{}`", self.tool, self.field),
+            None => {
+                let said: String = parts.iter().filter_map(|p| p["text"].as_str()).collect();
+                bail!(
+                    "model did not call `{}` with `{}` (finishReason={}, text={:?})",
+                    self.tool,
+                    self.field,
+                    resp["candidates"][0]["finishReason"],
+                    said.chars().take(200).collect::<String>()
+                )
+            }
         }
     }
 }

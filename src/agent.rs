@@ -71,7 +71,7 @@ pub async fn handle(cpa: &Cpa, blocked: Blocked429, opts: &Options) -> Result<()
                     Ok(c) => c,
                     Err(e) => {
                         warn!("rewrite generation failed: {e:#}");
-                        break;
+                        continue;
                     }
                 };
                 let mut subset = blocking.clone();

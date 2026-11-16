@@ -33,7 +33,7 @@ Between probes it calls `POST /v8/management/routing/cooldown/reset`, so a 429 s
 | `SENTINEL_AGY_EDIT_FIELD` | required with the above | that tool's argument that holds the new text |
 | `SENTINEL_AGY_MODEL` | `gemini-3.8-flash` | model used for rewrites |
 
-CPA must have request error logging enabled so that `error-*.log` files are written, and the agent must run on the CPA host (or share the log directory).
+`CPA_URL` must be plain `http` (the agent is built without TLS so it ships as a static musl binary). CPA must have request error logging enabled so that `error-*.log` files are written, and the agent must run on the CPA host (or share the log directory).
 
 ## Antigravity prompt and tools
 
