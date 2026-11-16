@@ -35,6 +35,16 @@ Between probes it calls `POST /v8/management/routing/cooldown/reset`, so a 429 s
 
 CPA must have request error logging enabled so that `error-*.log` files are written, and the agent must run on the CPA host (or share the log directory).
 
+## Antigravity prompt and tools
+
+`scripts/fetch-agy.py <dir>` downloads Antigravity's system prompt and tool declarations from the public [x1xhlol/system-prompts-and-models-of-ai-tools](https://github.com/x1xhlol/system-prompts-and-models-of-ai-tools) collection and writes `<dir>/system.txt` and `<dir>/tools.json` (22 tools in Gemini `functionDeclarations` format). It honours `HTTPS_PROXY`. The files are not stored in this repository.
+
+```sh
+python3 scripts/fetch-agy.py agy
+export SENTINEL_AGY_SYSTEM_FILE=agy/system.txt SENTINEL_AGY_TOOLS_FILE=agy/tools.json \
+       SENTINEL_AGY_EDIT_TOOL=replace_file_content SENTINEL_AGY_EDIT_FIELD=ReplacementContent
+```
+
 ## Run
 
 ```sh

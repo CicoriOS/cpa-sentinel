@@ -42,7 +42,8 @@ impl Agy {
         let mut prompt = format!(
             "The upstream content filter rejects the following line from a system prompt with a bogus \
              429. Reword it so the meaning, language and any identifiers, paths and URLs stay the same \
-             but the wording differs. Reply only by calling `{}` with the new line in `{}`.\n\n\
+             but the wording differs. Reply only by calling `{}` with the new line in `{}`; \
+             fill its other required arguments with plausible values, they are ignored.\n\n\
              Line:\n{trigger}",
             self.tool, self.field
         );
