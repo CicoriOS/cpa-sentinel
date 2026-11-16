@@ -1,0 +1,19 @@
+[package]
+name = "cpa-sentinel"
+version = "0.1.0"
+edition = "2024"
+description = "Watches CLIProxyAPI's Antigravity channel for false-positive 429s, bisects the system prompt to find the trigger text, and hot-patches a replace rule through the management API."
+license = "AGPL-3.0-only"
+
+[dependencies]
+anyhow = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "fs", "process"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+[profile.release]
+lto = true
+strip = true
