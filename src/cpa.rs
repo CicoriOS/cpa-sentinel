@@ -89,6 +89,9 @@ impl Cpa {
             let text = resp.text().await.unwrap_or_default();
             match status {
                 200 => return Ok(Probe::Pass),
+                // The model started generating and only its function call was malformed, so the
+                // upstream filter let the request through.
+                502 if text.contains("MALFORMED_FUNCTION_CALL") => return Ok(Probe::Pass),
                 // CPA's own "all credentials cooling down": reset raced with a retry, try again.
                 429 if text.contains("model_cooldown") || text.contains("cooling down") => {
                     tokio::time::sleep(Duration::from_secs(2)).await;
